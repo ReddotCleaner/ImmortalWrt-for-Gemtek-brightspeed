@@ -202,3 +202,4 @@ jobs:
             bin/targets/airoha/an7581/sha256sums
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+# fork-enabled
