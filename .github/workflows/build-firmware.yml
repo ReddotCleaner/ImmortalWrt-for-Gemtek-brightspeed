@@ -95,6 +95,24 @@ jobs:
           bash scripts/check-gemtek-profile-isolation.sh --config .config
           grep -E 'CONFIG_(IMAGEOPT|EXTRA_IMAGE_NAME|VERSIONOPT|VERSION_DIST|VERSION_NUMBER|VERSION_CODE|VERSION_FILENAMES|VERSION_CODE_FILENAMES)[= ]' .config
 
+      - name: Report lean config
+        shell: bash
+        run: |
+          echo "=== image packages (=y): $(grep -c '^CONFIG_PACKAGE_.*=y$' .config || true) ==="
+          echo "=== offline-repo packages (=m): $(grep -c '^CONFIG_PACKAGE_.*=m$' .config || true) ==="
+          watch="luci-app-lucky luci-app-zerotier luci-app-ddns-go luci-app-ddns luci-app-upnp luci-app-arpbind luci-app-msd_lite luci-app-autoreboot luci-app-timewol luci-app-wifischedule luci-app-watchcat luci-app-wol luci-app-vlmcsd luci-app-rtp2httpd luci-app-udpxy lucky zerotier ddns-go ddns-scripts miniupnpd-nftables libminiupnpc msd_lite rtp2httpd udpxy vlmcsd watchcat smartdns smartdns-ui xray-core simple-obfs-client chinadns-ng geoview dns2socks microsocks ipt2socks igmpproxy luci-theme-argon"
+          pulled=""
+          for p in $watch; do
+            if grep -qx "CONFIG_PACKAGE_$p=y" .config; then pulled="$pulled $p"; fi
+          done
+          if [ -n "$pulled" ]; then
+            echo "::warning::these were pulled back into the image (=y) by defconfig/watchdog deps:$pulled"
+          else
+            echo "lean profile clean: none of the trimmed packages are =y"
+          fi
+          echo "=== wireguard/kmod state ==="
+          grep -E '^CONFIG_PACKAGE_(kmod-wireguard|wireguard-tools|luci-proto-wireguard|rpcd-mod-wireguard|xray-core|luci-theme-argon|luci-theme-bootstrap)=' .config || true
+
       - name: Download sources
         run: make download -j$(nproc)
 
@@ -102,6 +120,53 @@ jobs:
         shell: bash
         run: |
           make -j2 world 2>&1 | tee build.log
+
+      - name: Build offline package repo
+        if: success()
+        shell: bash
+        run: |
+          make package/index V=s 2>&1 | tail -20 || true
+          echo "=== bin/packages layout (depth 4) ==="
+          find bin/packages -maxdepth 4 -type d 2>/dev/null | sort || true
+          echo "=== index files ==="
+          find bin/packages -maxdepth 5 -type f \( -name 'packages.adb*' -o -name 'Packages*' \) 2>/dev/null | sort || true
+          echo "=== package count ==="
+          find bin/packages -type f \( -name '*.apk' -o -name '*.ipk' \) 2>/dev/null | wc -l
+          du -sh bin/packages 2>/dev/null || true
+
+      - name: Pack offline package repo
+        if: success()
+        shell: bash
+        run: |
+          arch_dir=$(find bin/packages -mindepth 1 -maxdepth 2 -type d -name 'luci' 2>/dev/null | head -1 | xargs -r dirname)
+          echo "detected arch dir: $arch_dir"
+          {
+            echo "ImmortalWrt-for-Gemtek-brightspeed  offline package repository"
+            echo "target : airoha/an7581   config: ${{ inputs.config_seed }}"
+            echo "build  : ${{ steps.version.outputs.build_id }}"
+            echo
+            echo "内容: bin/packages/ 下本固件编译出的全部 apk 包 (image 里已装的 + 被精简掉的 =m 包)"
+            echo "这些包与随包发布的固件内核完全一致 (vermagic 匹配), 可随时补装。"
+            echo "注意: 官方 snapshot 源上的 kmod-* 与本固件内核不匹配, 装不上; 请用本仓库里的包。"
+            echo
+            echo "用法 (在设备上):"
+            echo "  tar -xzf gemtek-offline-packages.tar.gz -C /tmp"
+            echo "  # 1) 单包装:"
+            echo "  apk add --allow-untrusted /tmp/packages/<arch>/<feed>/<pkg>-<ver>.apk"
+            echo "  # 2) 或者加成本地源 (推荐):"
+            echo "  mkdir -p /etc/apk/repositories.d"
+            if [ -n "$arch_dir" ]; then
+              find "$arch_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sed 's|^bin|/tmp|' | sort \
+                | sed 's|^|  #   |' 
+            fi
+            echo "  find /tmp/packages -mindepth 2 -maxdepth 2 -type d | sort > /etc/apk/repositories.d/offline.list"
+            echo "  apk update"
+            echo
+            echo "被精简成 =m 的包共 63 个, 见 1710.config 中 CONFIG_PACKAGE_xxx=m 的行"
+          } > bin/packages/README.txt
+          tar -czf gemtek-offline-packages.tar.gz -C bin packages
+          ls -la gemtek-offline-packages.tar.gz
+          du -h gemtek-offline-packages.tar.gz
 
       - name: Verbose retry on build failure
         if: failure()
@@ -164,6 +229,14 @@ jobs:
           retention-days: 30
         if: always()
 
+      - name: Upload offline package repository
+        uses: actions/upload-artifact@v7
+        if: success()
+        with:
+          name: gemtek-${{ inputs.config_seed }}-offline-packages
+          path: gemtek-offline-packages.tar.gz
+          retention-days: 90
+
       - name: Build release body
         if: github.event.inputs.release_type != 'none'
         id: release_body
@@ -200,6 +273,7 @@ jobs:
             bin/targets/airoha/an7581/feeds.buildinfo
             bin/targets/airoha/an7581/version.buildinfo
             bin/targets/airoha/an7581/sha256sums
+            gemtek-offline-packages.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 # fork-enabled
