@@ -138,35 +138,46 @@ jobs:
         if: success()
         shell: bash
         run: |
-          arch_dir=$(find bin/packages -mindepth 1 -maxdepth 2 -type d -name 'luci' 2>/dev/null | head -1 | xargs -r dirname)
-          echo "detected arch dir: $arch_dir"
+          rm -rf /tmp/offline
+          mkdir -p /tmp/offline/packages /tmp/offline/target-packages
+          cp -a bin/packages/. /tmp/offline/packages/
+          if [ -d bin/targets/airoha/an7581/packages ]; then
+            cp -a bin/targets/airoha/an7581/packages/. /tmp/offline/target-packages/
+          fi
+          echo "=== offline repo layout ==="
+          find /tmp/offline -maxdepth 3 -type d | sort
+          echo "userspace apk: $(find /tmp/offline/packages -name '*.apk' | wc -l)"
+          echo "kmod/target apk: $(find /tmp/offline/target-packages -name '*.apk' | wc -l)"
+          find /tmp/offline/target-packages -name 'kmod-*.apk' | sort | head -40
           {
             echo "ImmortalWrt-for-Gemtek-brightspeed  offline package repository"
-            echo "target : airoha/an7581   config: ${{ inputs.config_seed }}"
+            echo "target : airoha/an7581    config: ${{ inputs.config_seed }}"
             echo "build  : ${{ steps.version.outputs.build_id }}"
             echo
-            echo "内容: bin/packages/ 下本固件编译出的全部 apk 包 (image 里已装的 + 被精简掉的 =m 包)"
-            echo "这些包与随包发布的固件内核完全一致 (vermagic 匹配), 可随时补装。"
-            echo "注意: 官方 snapshot 源上的 kmod-* 与本固件内核不匹配, 装不上; 请用本仓库里的包。"
+            echo "packages/        = userspace packages (base / luci / packages feeds)"
+            echo "target-packages/ = kernel modules and target packages (kmod-*, ...)"
             echo
-            echo "用法 (在设备上):"
+            echo "这些包与随包发布的固件用的是同一棵源码树、同一个内核, vermagic 严格匹配, 可随时补装。"
+            echo "官方 snapshot 源上的 kmod-* 与本固件内核不一致, 装不上, 请用本仓库里的包。"
+            echo
+            echo "用法 (在设备上执行):"
             echo "  tar -xzf gemtek-offline-packages.tar.gz -C /tmp"
-            echo "  # 1) 单包装:"
-            echo "  apk add --allow-untrusted /tmp/packages/<arch>/<feed>/<pkg>-<ver>.apk"
-            echo "  # 2) 或者加成本地源 (推荐):"
             echo "  mkdir -p /etc/apk/repositories.d"
-            if [ -n "$arch_dir" ]; then
-              find "$arch_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sed 's|^bin|/tmp|' | sort \
-                | sed 's|^|  #   |' 
-            fi
-            echo "  find /tmp/packages -mindepth 2 -maxdepth 2 -type d | sort > /etc/apk/repositories.d/offline.list"
+            echo "  { find /tmp/packages -mindepth 2 -maxdepth 2 -type d; [ -d /tmp/target-packages ] && echo /tmp/target-packages; } | sort > /etc/apk/repositories.d/offline.list"
             echo "  apk update"
             echo
-            echo "被精简成 =m 的包共 63 个, 见 1710.config 中 CONFIG_PACKAGE_xxx=m 的行"
-          } > bin/packages/README.txt
-          tar -czf gemtek-offline-packages.tar.gz -C bin packages
+            echo "  # 例: 装回 argon 主题 (装回去它会把默认主题重新设为 argon)"
+            echo "  apk add luci-theme-argon"
+            echo "  # 例: 装回 WireGuard"
+            echo "  apk add kmod-wireguard wireguard-tools luci-proto-wireguard rpcd-mod-wireguard"
+            echo "  # 例: 装回 xray-core (含 tproxy 内核模块)"
+            echo "  apk add xray-core simple-obfs-client kmod-nf-tproxy kmod-nft-tproxy"
+            echo
+            echo "只装单个 apk 文件:"
+            echo "  apk add --allow-untrusted /tmp/packages/<arch>/<feed>/xxx.apk"
+          } > /tmp/offline/README.txt
+          tar -czf gemtek-offline-packages.tar.gz -C /tmp/offline .
           ls -la gemtek-offline-packages.tar.gz
-          du -h gemtek-offline-packages.tar.gz
 
       - name: Verbose retry on build failure
         if: failure()
