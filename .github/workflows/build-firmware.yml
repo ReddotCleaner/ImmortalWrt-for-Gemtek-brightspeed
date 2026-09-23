@@ -14,7 +14,7 @@ on:
       release_type:
         description: 'Release Type'
         required: true
-        default: 'none'
+        default: 'release'
         type: choice
         options:
           - none
@@ -259,9 +259,29 @@ jobs:
             echo ""
             echo "---"
             echo ""
-            echo "如果您觉得对您有帮助，请我喝杯咖啡吧，让我更有动力持续更新。"
+            echo "### 固件说明"
             echo ""
-            echo '<img width="400" height="400" alt="c6ea388c976395326514814f80d512d5" src="https://github.com/user-attachments/assets/0ac90d58-ac73-4dc1-b926-276e539e5d0f" />'
+            echo "- 本固件由本仓库 GitHub Actions 自动构建，配置见 \`${{ inputs.config_seed }}\`"
+            echo "- 基于 [immortalwrt/immortalwrt](https://github.com/immortalwrt/immortalwrt) 与上游项目 [naoki66/ImmortalWrt-for-Gemtek-brightspeed](https://github.com/naoki66/ImmortalWrt-for-Gemtek-brightspeed)"
+            echo ""
+            echo "### 升级"
+            echo ""
+            echo "1. 下载 \`.itb\`（不要直接使用离线包 tar，那不是固件）"
+            echo "2. LuCI → 系统 → 备份/升级 → 刷写固件"
+            echo "3. **不要勾选「保留配置」**（本固件已移除 argon 主题，保留旧配置会导致 LuCI 白屏）"
+            echo ""
+            echo "### 离线软件包仓库"
+            echo ""
+            echo "\`gemtek-offline-packages.tar.gz\` 内含与本固件同一次编译出的全部 apk（含 kmod-*），与固件内核严格匹配。"
+            echo ""
+            echo "\`\`\`sh"
+            echo "tar -xzf gemtek-offline-packages.tar.gz -C /tmp"
+            echo "mkdir -p /etc/apk/repositories.d"
+            echo "{ find /tmp/packages -mindepth 2 -maxdepth 2 -type d; [ -d /tmp/target-packages ] && echo /tmp/target-packages; } | sort > /etc/apk/repositories.d/offline.list"
+            echo "apk update"
+            echo "\`\`\`"
+            echo ""
+            echo "官方 snapshot 源上的 \`kmod-*\` 与本固件内核不匹配、装不上，请使用本仓库的包。"
           } > /tmp/release_body.md
           {
             echo "body<<EOF"
@@ -283,6 +303,7 @@ jobs:
             bin/targets/airoha/an7581/config.buildinfo
             bin/targets/airoha/an7581/feeds.buildinfo
             bin/targets/airoha/an7581/version.buildinfo
+            bin/targets/airoha/an7581/*.manifest
             bin/targets/airoha/an7581/sha256sums
             gemtek-offline-packages.tar.gz
         env:
