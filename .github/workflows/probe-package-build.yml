@@ -46,6 +46,9 @@ jobs:
           }
           grep -E '^CONFIG_PACKAGE_kmod-airoha-i2c=' .config
 
+      - name: Download sources
+        run: make -j$(nproc) download
+
       - name: Build toolchain and kernel
         run: make -j$(nproc) package/kernel/linux/compile V=s
 

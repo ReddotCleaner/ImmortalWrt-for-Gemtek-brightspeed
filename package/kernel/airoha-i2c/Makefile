@@ -29,4 +29,14 @@ define KernelPackage/airoha-i2c/description
  hardware and board sensors (e.g. the NCT7802 fan controller on XR1710G).
 endef
 
+# Out-of-tree module: Build/Compile/Default in this tree is the userspace
+# recipe (plain `make -C $(PKG_BUILD_DIR)`), which has no target to build for a
+# Kbuild-style dir and exits immediately. Drive the kernel's module build
+# explicitly, exactly like package/kernel/airoha-pon did before it was dropped.
+define Build/Compile
+	+$(KERNEL_MAKE) $(PKG_JOBS) \
+		M="$(PKG_BUILD_DIR)" \
+		modules
+endef
+
 $(eval $(call KernelPackage,airoha-i2c))
