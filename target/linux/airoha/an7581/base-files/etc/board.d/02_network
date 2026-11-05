@@ -36,16 +36,29 @@ an7581_setup_interfaces()
 	airoha,an7581-evb)
 		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3 lan4" "eth1"
 		;;
-	gemtek,w1700k-ubi|\
-		gemtek,xr1710g-ubi)
+	gemtek,w1700k-ubi)
 		gemtek_setup_interfaces
+		;;
+	gemtek,xr1710g|\
+	gemtek,xr1710g-ubi)
+		ucidef_set_hostname "XR1710G"
+		gemtek_setup_interfaces
+		;;
+	gemtek,xg2010g-ubi|\
+	gemtek,xg2010g|\
+	gemtek,xg2010g-2g-ubi|\
+	gemtek,xg2010g-2g)
+		ucidef_set_hostname "XG2010G"
+		# Panel order is two RTL8261N 10G ports, EN8811H 2.5G, then switch 1G.
+		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3 lan4" "pon0"
 		;;
 	nokia,valyrian)
 		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3 10g" "wan"
 		;;
 	nokia,xg-040g-md |\
-	nokia,xg-040g-md-ubi)
-		ucidef_set_interface_lan "lan1 lan2 lan3 lan4"
+	nokia,xg-040g-md-ubi |\
+	nokia,xg-040g-tf-ubi)
+		ucidef_set_interfaces_lan_wan "lan1 lan2 lan3 lan4" "pon0"
 		;;
 	quantum,q1000k-ubi)
 		# Both copper ports are LAN; the upstream connection is PON.

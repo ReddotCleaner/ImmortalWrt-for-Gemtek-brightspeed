@@ -58,7 +58,6 @@ define Device/airoha_an7581-evb
   DEVICE_MODEL := AN7581 Evaluation Board (SNAND)
   DEVICE_PACKAGES := kmod-leds-pwm kmod-pwm-airoha kmod-input-gpio-keys-polled
   DEVICE_DTS := an7581-evb
-  DEVICE_DTS_CONFIG := config@1
   IMAGE/sysupgrade.bin := append-kernel | pad-to 128k | append-rootfs | pad-rootfs | append-metadata
   ARTIFACT/preloader.bin := an7581-preloader rfb
   ARTIFACT/bl31-uboot.fip := an7581-bl31-uboot rfb
@@ -110,7 +109,7 @@ define Device/gemtek_w1700k-ubi
        the end of flash. A reinstall including corrected chainloader is needed.
   DEVICE_PACKAGES := airoha-en7581-mt7996-npu-firmware airoha-an7581-mt7996-board fitblk \
 		    kmod-hwmon-nct7802 kmod-mt7996-firmware wpad-openssl \
-		    rtl826x-firmware
+		    rtl826x-firmware rtl8261c-firmware
   UBINIZE_OPTS := -E 5
   BLOCKSIZE := 128k
   PAGESIZE := 2048
@@ -152,13 +151,13 @@ define Device/nokia_xg-040g-md-common
   UBINIZE_OPTS := -E 5
   DEVICE_PACKAGES := kmod-gpio-button-hotplug kmod-leds-gpio \
 	kmod-phy-airoha-en8811h kmod-regulator-userspace-consumer \
-	kmod-usb-ledtrig-usbport kmod-usb3
+	kmod-usb-ledtrig-usbport kmod-usb3 kmod-airoha-en7572 \
+	kmod-airoha-xpon airoha-ponctl airoha-pond
 endef
 
 define Device/nokia_xg-040g-md
   $(call Device/nokia_xg-040g-md-common)
   DEVICE_DTS := an7581-nokia_xg-040g-md
-  DEVICE_DTS_CONFIG := config@1
   IMAGE_SIZE := 131968k
   KERNEL_SIZE := 8192k
   IMAGES += factory-kernel.bin factory-rootfs.bin
@@ -189,24 +188,44 @@ define Device/nokia_xg-040g-md-ubi
 endef
 TARGET_DEVICES += nokia_xg-040g-md-ubi
 
-define Device/gemtek_xr1710g-ubi
+define Device/nokia_xg-040g-tf-common
+  $(call Device/nokia_xg-040g-md-common)
+  DEVICE_MODEL := XG-040G-TF
+  DEVICE_PACKAGES += -kmod-regulator-userspace-consumer \
+    -kmod-usb-ledtrig-usbport -kmod-usb3
+endef
+
+define Device/nokia_xg-040g-tf-ubi
+  $(call Device/nokia_xg-040g-tf-common)
+  DEVICE_VARIANT := (UBI)
+  DEVICE_DTS := an7581-nokia_xg-040g-tf-ubi
+  UBOOTENV_IN_UBI := 1
+  KERNEL_IN_UBI := 1
+  KERNEL := kernel-bin | gzip
+  KERNEL_INITRAMFS := kernel-bin | lzma | \
+	fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd | pad-to 128k
+  KERNEL_INITRAMFS_SUFFIX := -recovery.itb
+  IMAGES := sysupgrade.itb
+  IMAGE/sysupgrade.itb := append-kernel | \
+	fit gzip $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb external-static-with-rootfs | \
+	append-metadata
+  DEVICE_PACKAGES += fitblk
+endef
+TARGET_DEVICES += nokia_xg-040g-tf-ubi
+
+define Device/gemtek_xr1710g-common
   DEVICE_VENDOR := Gemtek
   DEVICE_MODEL := XR1710G
-  DEVICE_VARIANT := UBI
-  DEVICE_ALT0_VENDOR := Brightspeed
-  DEVICE_ALT0_MODEL := XR1710G
-  DEVICE_ALT0_VARIANT := UBI
-  SUPPORTED_DEVICES := gemtek,xr1710g-ubi
-  DEVICE_DTS := an7581-xr1710g-ubi
+  # Retail branding only. Keep it out of DEVICE_ALT0_*: Device/Dump emits one
+  # Target Profile entry per ALT name on top of the primary one, so an alias
+  # here would print two menu lines for every XR1710G layout.
+  DEVICE_DESCRIPTION := Gemtek XR1710G, also sold as Brightspeed XR1710G
   DEVICE_PACKAGES := airoha-en7581-mt7996-npu-firmware airoha-an7581-mt7996-board \
-		    fitblk uboot-envtools kmod-airoha-i2c \
-		    kmod-hwmon-nct7802 kmod-mt7996-firmware wpad-mbedtls \
+		    kmod-nf-conntrack-bridge kmod-nft-bridge \
+		    fitblk uboot-envtools \
+		    kmod-hwmon-nct7802 kmod-mt7996-firmware wpad-mesh-mbedtls \
 		    rtl826x-firmware px5g-mbedtls \
-		    -kmod-airoha-xpon-en757x -kmod-airoha-pon-plugins \
-		    -kmod-airoha-pon-dataplane -kmod-airoha-xpon-igmp \
-		    -kmod-airoha-gpon-igmp -kmod-airoha-tod \
-		    -kmod-airoha-en7581-pcm-spi \
-		    -airoha-pon-firmware -airoha-pon-manager
+		    -kmod-airoha-tod -kmod-airoha-en7581-pcm-spi
   UBINIZE_OPTS := -E 5
   BLOCKSIZE := 128k
   PAGESIZE := 2048
@@ -220,25 +239,44 @@ define Device/gemtek_xr1710g-ubi
   IMAGE/sysupgrade.itb := append-kernel | fit gzip $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb external-static-with-rootfs | append-metadata
   SOC := an7581
 endef
+
+define Device/gemtek_xr1710g
+  # DEVICE_DTS must be set before the common block: the common IMAGE/KERNEL
+  # lines use := and freeze $(firstword $(DEVICE_DTS)) at eval time.
+  DEVICE_DTS := an7581-xr1710g
+  $(call Device/gemtek_xr1710g-common)
+  SUPPORTED_DEVICES := gemtek,xr1710g
+endef
+TARGET_DEVICES += gemtek_xr1710g
+
+define Device/gemtek_xr1710g-ubi
+  DEVICE_DTS := an7581-gemtek-xr1710g-ubi
+  $(call Device/gemtek_xr1710g-common)
+  # Layout goes into DEVICE_VARIANT (like nokia_xg-040g-md-ubi), not into
+  # DEVICE_MODEL: that keeps the title free of a "(...)" suffix and the menu
+  # list at one line per layout. Matches gemtek_xg2010g-ubi in this file.
+  DEVICE_VARIANT := UBI
+  SUPPORTED_DEVICES := gemtek,xr1710g-ubi
+  DEVICE_COMPAT_VERSION := 2.0
+  DEVICE_COMPAT_MESSAGE := Firmware requires the XR1710G OpenWrt U-Boot UBI layout \
+       with bl2 at 0x00000000 and the UBI partition extending from \
+       0x00020000 to the end of NAND. Restore the complete 2 MiB stock DSD \
+       main-data image to the static factory volume before booting Linux.
+endef
 TARGET_DEVICES += gemtek_xr1710g-ubi
 
-define Device/gemtek_xg2010g-ubi
+define Device/gemtek_xg2010g-common
   DEVICE_VENDOR := Gemtek
-  DEVICE_MODEL := XG2010G
-  DEVICE_VARIANT := UBI
-  DEVICE_DTS := an7581-gemtek-xg2010g-ubi
   DEVICE_COMPAT_VERSION := 2.0
-  DEVICE_COMPAT_MESSAGE := Firmware must use the XG2010G UBI layout with \
-       the fit volume inside the ubi partition at 0x00600000. Upgrade only \
-       the ubi partition and keep bootloader, uenv, dsd and reserved_bmt intact.
+  DEVICE_COMPAT_MESSAGE := Firmware requires the XG2010G OpenWrt U-Boot UBI layout \
+       with bl2 at 0x00000000 and ubi starting at 0x00020000, containing \
+       fip, ubootenv, ubootenv2, factory and fit. Do not force an upgrade from \
+       the legacy 0x00600000 layout. Preserve bl2 and the boot/calibration volumes.
   DEVICE_PACKAGES := fitblk kmod-leds-gpio kmod-gpio-button-hotplug \
-	kmod-phy-airoha-en8811h \
-	kmod-airoha-xpon-en757x kmod-airoha-pon-plugins \
-	kmod-airoha-pon-dataplane kmod-airoha-xpon-igmp \
-	kmod-airoha-gpon-igmp \
-	kmod-airoha-tod \
-	kmod-airoha-en7581-pcm-spi \
-	airoha-pon-firmware airoha-pon-manager \
+	kmod-phy-airoha-en8811h kmod-phy-realtek rtl826x-firmware \
+	kmod-nf-conntrack-bridge kmod-nft-bridge \
+	kmod-airoha-en7572 kmod-airoha-xpon airoha-ponctl airoha-pond \
+	kmod-airoha-tod kmod-airoha-en7581-pcm-spi \
 	-airoha-an7581-mt7996-board -airoha-en7581-mt7996-npu-firmware \
 	-kmod-mac80211 -kmod-mt7996-firmware -kmod-mt7996e \
 	-wpad-mbedtls -wpad-mesh-mbedtls -wireless-regdb
@@ -247,17 +285,35 @@ define Device/gemtek_xg2010g-ubi
   UBINIZE_OPTS := -E 5
   KERNEL_IN_UBI := 1
   KERNEL := kernel-bin | gzip
-  KERNEL_INITRAMFS := kernel-bin | lzma | \
-	fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd | pad-to 128k
-  KERNEL_INITRAMFS_SUFFIX := -recovery.itb
   IMAGES := sysupgrade.itb
+  # The dynamic UBI fit volume is recreated to the uploaded image size.
+  # The 128 MiB package limit is independent of UBI volume placement.
+  IMAGE_SIZE := 131072k
   IMAGE/sysupgrade.itb := append-kernel | \
 	fit gzip $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb external-static-with-rootfs | \
-	append-metadata
-  SUPPORTED_DEVICES := gemtek,xg2010g-ubi gemtek,xg2010g
+	append-metadata | check-size
   SOC := an7581
 endef
+
+define Device/gemtek_xg2010g-ubi
+  # DEVICE_DTS must be set before the common block: the common IMAGE line
+  # uses := and freezes $(firstword $(DEVICE_DTS)) at eval time.
+  DEVICE_DTS := an7581-gemtek-xg2010g-ubi
+  $(call Device/gemtek_xg2010g-common)
+  DEVICE_MODEL := XG2010G
+  DEVICE_VARIANT := UBI
+  SUPPORTED_DEVICES := gemtek,xg2010g-ubi gemtek,xg2010g
+endef
 TARGET_DEVICES += gemtek_xg2010g-ubi
+
+define Device/gemtek_xg2010g-2g-ubi
+  DEVICE_DTS := an7581-gemtek-xg2010g-2g-ubi
+  $(call Device/gemtek_xg2010g-common)
+  DEVICE_MODEL := XG2010G (2 GiB)
+  DEVICE_VARIANT := UBI
+  SUPPORTED_DEVICES := gemtek,xg2010g-2g-ubi gemtek,xg2010g-2g
+endef
+TARGET_DEVICES += gemtek_xg2010g-2g-ubi
 
 define Device/quantum_q1000k-ubi
   DEVICE_VENDOR := Quantum Fiber
