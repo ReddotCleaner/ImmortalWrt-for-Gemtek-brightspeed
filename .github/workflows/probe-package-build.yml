@@ -50,7 +50,13 @@ jobs:
         run: make -j$(nproc) download
 
       - name: Build toolchain and kernel
-        run: make -j$(nproc) package/kernel/linux/compile V=s
+        run: |
+          # Canonical order: building one deep target with -j lets host tools
+          # race their own consumers (Error 127 creating private-key.pem / lua
+          # host .configured), so install tools and toolchain first.
+          make -j$(nproc) tools/install
+          make -j$(nproc) toolchain/install
+          make -j$(nproc) package/kernel/linux/compile V=s
 
       - name: Compile the package (verbose)
         run: |
