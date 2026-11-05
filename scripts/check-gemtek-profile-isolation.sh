@@ -90,11 +90,25 @@ if grep -En "^CONFIG_(PACKAGE|DEFAULT)_${forbidden_packages}=y$" "$config_file";
 	failed=1
 fi
 
+# With CONFIG_TARGET_PER_DEVICE_ROOTFS=y (the multi-profile layout this repo
+# builds), `make defconfig` normalises a required package from =y to =m: the
+# image is assembled per device from that device's DEVICE_PACKAGES, so a board
+# package listed there still reaches the rootfs as a module. Accept =m in that
+# mode and let the manifest check below prove the package really shipped.
+per_device_rootfs=0
+grep -Fqx 'CONFIG_TARGET_PER_DEVICE_ROOTFS=y' "$config_file" && per_device_rootfs=1
+
 for package in "${required_packages[@]}"; do
-	if ! grep -Fqx "CONFIG_PACKAGE_${package}=y" "$config_file"; then
-		echo "$profile config is missing required package: $package" >&2
-		failed=1
+	state=$(sed -n "s/^CONFIG_PACKAGE_${package}=\([ym]\)$/\1/p" "$config_file" | head -1)
+	if [ "$state" = "y" ]; then
+		continue
 	fi
+	if [ "$state" = "m" ] && [ "$per_device_rootfs" = "1" ]; then
+		echo "note: $package is =m; per-device rootfs pulls it from DEVICE_PACKAGES (manifest check enforces presence)"
+		continue
+	fi
+	echo "$profile config is missing required package: $package" >&2
+	failed=1
 done
 
 if [[ -n "$forbidden_build_config" ]] && grep -Fqx "$forbidden_build_config" "$config_file"; then
