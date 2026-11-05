@@ -94,6 +94,15 @@ jobs:
           VERSION_CODE='${{ steps.version.outputs.version_code }}' \
           bash scripts/set-build-version.sh .config
           make defconfig
+          # an7581.mk pulls kmod-airoha-i2c in via DEVICE_PACKAGES (NCT7802 fan +
+          # board temperature on i2c0). defconfig silently drops an unknown
+          # CONFIG_PACKAGE_ symbol, so assert the package really got parsed.
+          # PER_DEVICE_ROOTFS may normalise a DEVICE_PACKAGES-only package to =m
+          # (the per-device image still installs it), so accept both.
+          grep -qE '^CONFIG_PACKAGE_kmod-airoha-i2c=[ym]$' .config || {
+            echo "::error::kmod-airoha-i2c missing from .config — package/kernel/airoha-i2c was not parsed"
+            exit 1
+          }
           bash scripts/check-gemtek-profile-isolation.sh --config .config
           grep -E 'CONFIG_(IMAGEOPT|EXTRA_IMAGE_NAME|VERSIONOPT|VERSION_DIST|VERSION_NUMBER|VERSION_CODE|VERSION_FILENAMES|VERSION_CODE_FILENAMES)[= ]' .config
 
